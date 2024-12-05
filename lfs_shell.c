@@ -1,16 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include <unistd.h> // Necesaria para funciones POSIX
 #include <fcntl.h>
 #include <dirent.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/stat.h> //Para que funcione la fucnion crearDir,permisos
+#include <sys/stat.h>
 #include <pwd.h>
 #include <grp.h>
-#include <unistd.h>
-
+#include <errno.h> // Necesaria para manejar errores con errno
 
 #define MAX_LFS_INPUT 1024
 #define MAX_ARGS 100
@@ -35,7 +34,7 @@ void copiar(const char *origen, const char *destino) {
         return;
     }
 
-    char buffer[MAX_INPUT];
+    char buffer[MAX_LFS_INPUT];
     ssize_t bytes_leidos;
     while ((bytes_leidos = read(origen_fd, buffer, sizeof(buffer))) > 0) {
         if (write(destino_fd, buffer, bytes_leidos) < 0) {
@@ -119,9 +118,14 @@ void propietario(const char *nuevo_propietario, const char *nuevo_grupo, const c
 
     // Obtener UID del propietario si es especificado
     if (nuevo_propietario != NULL && strcmp(nuevo_propietario, "-") != 0) {
+        errno = 0; // Inicializar errno
         struct passwd *pwd = getpwnam(nuevo_propietario);
         if (pwd == NULL) {
-            perror("Error al obtener UID del propietario");
+            if (errno != 0) {
+                perror("Error al obtener UID del propietario");
+            } else {
+                fprintf(stderr, "Error al obtener UID del propietario '%s': No se encontró el usuario.\n", nuevo_propietario);
+            }
             return;
         }
         uid = pwd->pw_uid;
@@ -129,9 +133,14 @@ void propietario(const char *nuevo_propietario, const char *nuevo_grupo, const c
 
     // Obtener GID del grupo si es especificado
     if (nuevo_grupo != NULL && strcmp(nuevo_grupo, "-") != 0) {
+        errno = 0; // Inicializar errno
         struct group *grp = getgrnam(nuevo_grupo);
         if (grp == NULL) {
-            perror("Error al obtener GID del grupo");
+            if (errno != 0) {
+                perror("Error al obtener GID del grupo");
+            } else {
+                fprintf(stderr, "Error al obtener GID del grupo '%s': No se encontró el grupo.\n", nuevo_grupo);
+            }
             return;
         }
         gid = grp->gr_gid;
@@ -161,7 +170,7 @@ void procesar_comando(char *input) {
 
     if (args[0] == NULL) return;
 
-    if (strcmp(args[0], "propietario") == 0) { // Manejo del comando 'propietario'
+    if (strcmp(args[0], "propietario") == 0) {
         if (i >= 4) {
             propietario(args[1], args[2], (const char **)&args[3], i - 3);
         } else {
