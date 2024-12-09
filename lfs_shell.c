@@ -18,6 +18,7 @@
 // Función para mostrar el prompt
 void prompt() {
     printf("lfs-shell> ");
+     fflush(stdout);
 }
 
 // Implementación del comando 'copiar'
