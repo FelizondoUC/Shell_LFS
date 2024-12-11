@@ -188,6 +188,20 @@ void cambiar_clave(const char *usuario) {
 }
 //****************************************************************************************************
 
+
+
+// Función para ejecutar comandos del sistema
+void ejecutar_comando_sistema(char *comando) {
+    int resultado = system(comando);  // Ejecuta el comando del sistema
+
+    if (resultado == -1) {
+        perror("Error al ejecutar el comando");
+    } else {
+        printf("Comando ejecutado con éxito: %s\n", comando);
+    }
+}
+
+
 //Procesar y Ejecutar Comandos
 void procesar_comando(char *input) {
     char *args[MAX_ARGS];
@@ -202,6 +216,7 @@ void procesar_comando(char *input) {
 
     if (args[0] == NULL) return;
 
+    // Comandos implementados
     if (strcmp(args[0], "propietario") == 0) {
         if (i >= 4) {
             cambiar_propietario(args[1], args[2], (const char **)&args[3], i - 3);
@@ -258,7 +273,8 @@ void procesar_comando(char *input) {
     } else if (strcmp(args[0], "exit") == 0) {
         exit(0);
     } else {
-        printf("Comando desconocido: %s\n", args[0]);
+        // Si no es uno de los comandos anteriores, lo ejecutamos como un comando del sistema
+        ejecutar_comando_sistema(input);
     }
 }
 
