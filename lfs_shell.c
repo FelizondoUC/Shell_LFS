@@ -10,6 +10,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <errno.h> // Necesaria para manejar errores con errno
+#include <signal.h>
 
 #define MAX_LFS_INPUT 1024
 #define MAX_ARGS 100
@@ -189,15 +190,41 @@ void cambiar_clave(const char *usuario) {
 //****************************************************************************************************
 
 
+void manejador_SIGINT(int sig) {
+    printf("\nSeñal SIGINT capturada.\n");
+    // No matamos el shell principal, pero podemos manejar interrupciones aquí
+}
 
-// Función para ejecutar comandos del sistema
-void ejecutar_comando_sistema(char *comando) {
-    int resultado = system(comando);  // Ejecuta el comando del sistema
 
-    if (resultado == -1) {
-        perror("Error al ejecutar el comando");
+void ejecutar_comando_sistema(char **args) {
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("Error al bifurcar");
+        return;
+    }
+
+    if (pid == 0) {
+        // Proceso hijo
+        if (execvp(args[0], args) == -1) {
+            perror("Error al ejecutar el comando");
+        }
+        exit(EXIT_FAILURE);
     } else {
-        printf("Comando ejecutado con éxito: %s\n", comando);
+        // Proceso padre
+        int status;
+
+        //Cambiar el maneajdor de selales para capturar Ctrl+C
+        struct sigaction sa;
+        sa.sa_handler = manejador_SIGINT;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART;
+
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status)) {
+            printf("Comando ejecutado con éxito: %s\n", args[0]);
+        } else {
+            printf("El comando terminó de manera anormal: %s\n", args[0]);
+        }
     }
 }
 
@@ -274,13 +301,24 @@ void procesar_comando(char *input) {
         exit(0);
     } else {
         // Si no es uno de los comandos anteriores, lo ejecutamos como un comando del sistema
-        ejecutar_comando_sistema(input);
+        ejecutar_comando_sistema(args);
     }
 }
 
 
 // Función principal de la shell
 int main() {
+    // Configurar el manejador de señales
+    struct sigaction sa;
+    sa.sa_handler = manejador_SIGINT;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART; // Reiniciar las llamadas al sistema interrumpidas
+
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("Error al configurar el manejador de señales");
+        exit(EXIT_FAILURE);
+    }
+    
     char input[MAX_LFS_INPUT];
 
     while (1) {
