@@ -15,8 +15,8 @@
 
 #define MAX_LFS_INPUT 1024
 #define MAX_ARGS 100
-#define USER_DATA_FILE "/usr/local/bin/usuarios_data.txt" //Aca se guardan los datos del ususario
-#define HISTORIAL_FILE "historial.log" // Archivo para el historial
+#define USER_DATA_FILE "/usr/local/bin/usuarios_data.txt" //Aca se guardan los datos de inicio de sesion del ususario
+#define HISTORIAL_FILE "/var/log/shell/historial.log" // Archivo para el historial
 #define ERROR_LOG_FILE "/var/log/shell/sistema_error.log" // Archivo para errores
 // Estructura para datos de usuario
 typedef struct {
@@ -108,6 +108,7 @@ void prompt() {
 
 // Implementación del comando 'copiar'
 void copiar(const char *origen, const char *destino) {
+    registrar_historial(origen);
     int origen_fd = open(origen, O_RDONLY);
     if (origen_fd < 0) {
         perror("Error al abrir el archivo origen");
@@ -142,6 +143,7 @@ void copiar(const char *origen, const char *destino) {
 
         // Mensaje de éxito si no hubo errores
     if (exito) {
+        registrar_historial(origen);
         printf("Archivo '%s' copiado exitosamente a '%s'\n", origen, destino);
     }
 }
@@ -149,6 +151,7 @@ void copiar(const char *origen, const char *destino) {
 // Implementación del comando 'mover'
 void mover(const char *origen, const char *destino) {
     printf("Moviendo archivo de: %s a: %s\n", origen, destino); // Verifica las rutas
+    registrar_historial(origen);
     if (rename(origen, destino) != 0) {
         perror("Error al mover el archivo");
     }
@@ -156,6 +159,7 @@ void mover(const char *origen, const char *destino) {
 
 // Implementación del comando 'renombrar'
 void renombrar(const char *archivo, const char *nuevo_nombre) {
+    registrar_historial(archivo);
     if (rename(archivo, nuevo_nombre) != 0) {
         perror("Error al renombrar el archivo");
     }
@@ -163,6 +167,7 @@ void renombrar(const char *archivo, const char *nuevo_nombre) {
 
 // Implementación del comando 'listar'
 void listar(const char *directorio) {
+    registrar_historial(directorio);
     DIR *dir = opendir(directorio);
     if (dir == NULL) {
         perror("Error al abrir el directorio");
@@ -182,6 +187,7 @@ void creardir(const char *directorio) {
     if (mkdir(directorio, 0755) != 0) {
         perror("Error al crear el directorio");
     } else {
+        registrar_historial(directorio);
         printf("Directorio '%s' creado exitosamente\n", directorio);
     }
 }
@@ -189,6 +195,7 @@ void creardir(const char *directorio) {
 // Función para cambiar de directorio
 void ir(const char *directorio) {
     if (chdir(directorio) == 0) {
+        registrar_historial(directorio);
         printf("Directorio cambiado a: %s\n", directorio);
     } else {
         perror("Error al cambiar de directorio");
@@ -199,6 +206,7 @@ void ir(const char *directorio) {
 void mostrar() {
     char cwd[MAX_LFS_INPUT]; // Buffer para almacenar el directorio actual
     if (getcwd(cwd, sizeof(cwd)) != NULL) { // getcwd obtiene el directorio actual
+        //registrar_historial();
         printf("%s\n", cwd); // Imprime el directorio actual
     } else {
         perror("Error al obtener el directorio actual");
@@ -211,6 +219,7 @@ void permisos(const char *modo, const char **archivos, int cantidad) {
     mode_t permisos = strtol(modo, NULL, 8); // Convierte el modo (octal) a un valor numérico
     for (int i = 0; i < cantidad; i++) {
         if (chmod(archivos[i], permisos) == 0) {                    //chmod en este caso es una función del sistema incluida en la biblioteca estándar de C <sys/stat.h>
+            registrar_historial(modo);
             printf("Permisos cambiados para: %s\n", archivos[i]);
         } else {
             perror("Error al cambiar permisos");
@@ -223,6 +232,7 @@ void cambiar_propietario(const char *nuevo_propietario, const char *nuevo_grupo,
     struct passwd *propietario_info;
     struct group *grupo_info;
     int i;
+    registrar_historial(nuevo_propietario);
 
     // Obtener la información del nuevo propietario
     propietario_info = getpwnam(nuevo_propietario);
@@ -250,6 +260,7 @@ void cambiar_propietario(const char *nuevo_propietario, const char *nuevo_grupo,
 
 //Función para cambiar la contraseña de un usuario
 void cambiar_clave(const char *usuario) {
+    registrar_historial(usuario);
     if (usuario == NULL || strlen(usuario) == 0) {
         printf("Error: Usuario no especificado.\n");
         return;
@@ -315,6 +326,7 @@ void manejador_SIGINT(int sig) {
 
 //Fucnion para ejecutar comandos del sistema
 void ejecutar_comando_sistema(char **args) {
+    registrar_historial(args[0]);
     pid_t pid = fork();
     if (pid == -1) {
         perror("Error al bifurcar");
@@ -347,6 +359,7 @@ void ejecutar_comando_sistema(char **args) {
 }
 
 void listarDemonios() {
+    //registrar_historial(args[0]);
     struct dirent *entry;
     DIR *dp = opendir("/etc/init.d");
 
@@ -365,6 +378,7 @@ void listarDemonios() {
 }
 
 int obtenerPID(const char *nombre) {
+    //registrar_historial(nombre);
     char ruta[MAX_LFS_INPUT];
     char buffer[128];
     snprintf(ruta, sizeof(ruta), "/var/run/%s.pid", nombre);
@@ -384,6 +398,7 @@ int obtenerPID(const char *nombre) {
 }
 
 void iniciarDemonio(const char *nombre) {
+    //registrar_historial(args[0]);
     char ruta[MAX_LFS_INPUT];
     snprintf(ruta, sizeof(ruta), "/etc/init.d/%s", nombre);
 
@@ -416,6 +431,7 @@ void iniciarDemonio(const char *nombre) {
 }
 
 void detenerDemonio(const char *nombre) {
+    //registrar_historial(args[0]);
     int pid = obtenerPID(nombre);
     if (pid == -1) {
         printf("No se encontró un proceso en ejecución para el demonio '%s'.\n", nombre);
@@ -443,10 +459,10 @@ void procesarDemonio(const char *accion, const char *nombre) {
 
 //Función para registrar el inicio de cesion
 void registrar_sesion(const char *usuario, const char *accion) {
-    char log_path[PATH_MAX] = "usuario_horarios_log";
-    FILE *archivo = fopen(log_path, "a");
+    const char *DATA_FILE = "/usr/local/bin/usuario_horarios.log";
+    FILE *archivo = fopen(DATA_FILE, "a");
     if (archivo == NULL) {
-        registrar_error("Error al abrir usuario_horarios_log");
+        registrar_error("Error al abrir usuario_horarios.log");
         return;
     }
 
@@ -493,7 +509,9 @@ void procesar_comando(char *input) {
     }
     args[i] = NULL;
 
-    if (args[0] == NULL) return;
+    if (args[0] == NULL){
+        return;
+    }
 
     // Comandos implementados
     if (strcmp(args[0], "propietario") == 0) {
@@ -577,6 +595,12 @@ void procesar_comando(char *input) {
         } else {
             printf("Uso: usuario <nombre> <horario> <ips>\n");
         }
+    } else if (strcmp(args[0], "sesion") == 0){
+        if (args[1] == NULL || args[2] == NULL) {
+        printf("Uso: sesion <usuario> <accion>\n");
+    } else {
+        registrar_historial(args[0]);
+    }
     } else {
         // Si no es uno de los comandos anteriores, lo ejecutamos como un comando del sistema
         ejecutar_comando_sistema(args);
@@ -598,13 +622,18 @@ int main() {
     
     char input[MAX_LFS_INPUT];
 
+    registrar_sesion("lfs_usuario", "inició");
+
     while (1) {
         prompt();
         if (fgets(input, MAX_LFS_INPUT, stdin) == NULL) {
+            registrar_sesion("lfs_usuario", "cerró");
             break; // Salir con Ctrl+D
         }
         procesar_comando(input);
     }
+
+
 
     return 0;
 }
