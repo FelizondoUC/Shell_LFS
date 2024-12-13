@@ -11,10 +11,94 @@
 #include <grp.h>
 #include <errno.h> // Necesaria para manejar errores con errno
 #include <signal.h>
+#include <time.h>
 
 #define MAX_LFS_INPUT 1024
 #define MAX_ARGS 100
-#define CONFIG_FILE "/etc/usuarios_info.txt"  // Archivo para almacenar la información del usuario
+#define USER_DATA_FILE "/usr/local/bin/usuarios_data.txt" //Aca se guardan los datos del ususario
+#define HISTORIAL_FILE "historial.log" // Archivo para el historial
+#define ERROR_LOG_FILE "/var/log/shell/sistema_error.log" // Archivo para errores
+// Estructura para datos de usuario
+typedef struct {
+    char nombre[64];
+    char contrasena[64];
+    char horario[64];  // Ejemplo: "10:00-17:00"
+    char ips[128];     // Ejemplo: "192.168.100.57,localhost"
+} Usuario;
+
+
+// Funcion para obtener el timestamp actual
+void obtener_timestamp(char *buffer, size_t size) {
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    if (t != NULL) {
+        strftime(buffer, size, "%Y-%m-%d %H:%M:%S", t);
+    } else {
+        snprintf(buffer, size, "Timestamp no disponible");
+    }
+}
+
+// Funcion para registrar en el historial
+void registrar_historial(const char *comando) {
+    FILE *archivo = fopen(HISTORIAL_FILE, "a");
+    if (archivo == NULL) {
+        perror("Error al abrir historial.log");
+        return;
+    }
+
+    char timestamp[64];
+    obtener_timestamp(timestamp, sizeof(timestamp));
+
+    fprintf(archivo, "%s: %s\n", timestamp, comando);
+    fclose(archivo);
+}
+
+// Funcion para registrar errores
+void registrar_error(const char *mensaje) {
+    FILE *archivo = fopen(ERROR_LOG_FILE, "a");
+    if (archivo == NULL) {
+        perror("Error al abrir sistema_error.log");
+        return;
+    }
+
+    char timestamp[64];
+    obtener_timestamp(timestamp, sizeof(timestamp));
+    perror(mensaje);
+    fprintf(archivo, "%s: ERROR: %s\n", timestamp, mensaje);
+    fclose(archivo);
+}
+
+// Función para dividir el comando en argumentos
+void parse_command(char *input, char **args) {
+    char *token;
+    int i = 0;
+
+    // Dividir el input por espacios
+    token = strtok(input, " \n");
+    while (token != NULL) {
+        args[i++] = token;
+        token = strtok(NULL, " \n");
+    }
+    args[i] = NULL; // Terminar la lista de argumentos
+}
+
+void ejecutar_comando(const char *comando) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Proceso hijo para ejecutar el comando
+        char *argv[] = {"/bin/sh", "-c", (char *)comando, NULL};
+        execvp(argv[0], argv);
+        perror("Error al ejecutar el comando");
+        exit(EXIT_FAILURE);
+    } else if (pid > 0) {
+        // Proceso padre espera
+        waitpid(pid, NULL, 0);
+        printf("Comando ejecutado: %s\n", comando);
+    } else {
+        registrar_error("Error al ejecutar comando genérico");
+    }
+}
+
 
 // Función para mostrar el prompt
 void prompt() {
@@ -77,7 +161,6 @@ void renombrar(const char *archivo, const char *nuevo_nombre) {
     }
 }
 
-
 // Implementación del comando 'listar'
 void listar(const char *directorio) {
     DIR *dir = opendir(directorio);
@@ -112,7 +195,6 @@ void ir(const char *directorio) {
     }
 }
 
-//************************************************************************************************************
 //Comando para obtener el directorio actual.
 void mostrar() {
     char cwd[MAX_LFS_INPUT]; // Buffer para almacenar el directorio actual
@@ -122,7 +204,7 @@ void mostrar() {
         perror("Error al obtener el directorio actual");
     }
 }
-//************************************************************************************************************
+
 
 // Función para cambiar permisos
 void permisos(const char *modo, const char **archivos, int cantidad) {
@@ -165,7 +247,7 @@ void cambiar_propietario(const char *nuevo_propietario, const char *nuevo_grupo,
         }
     }
 }
-//**************************************************************************************************
+
 //Función para cambiar la contraseña de un usuario
 void cambiar_clave(const char *usuario) {
     if (usuario == NULL || strlen(usuario) == 0) {
@@ -187,15 +269,51 @@ void cambiar_clave(const char *usuario) {
         printf("Error: El comando 'passwd' devolvió un código de salida %d.\n", resultado);
     }
 }
-//****************************************************************************************************
 
+//Funcion para agregar usuario con su ip y horario laboral
+void agregar_usuario(const char *nombre, const char *horario, const char *ips) {
+    FILE *archivo;
+    char comando[256];
+
+    // Crear el usuario en el sistema
+    snprintf(comando, sizeof(comando), "useradd -m %s", nombre);
+    if (system(comando) != 0) {
+        printf("Error al crear el usuario '%s'.\n", nombre);
+        return;
+    }
+
+    // Establecer contraseña
+    printf("Estableciendo contraseña para '%s'.\n", nombre);
+    snprintf(comando, sizeof(comando), "passwd %s", nombre);
+    if (system(comando) != 0) {
+        printf("Error al establecer la contraseña para '%s'.\n", nombre);
+        return;
+    }
+
+    // Guardar los datos del usuario en el archivo
+    archivo = fopen(USER_DATA_FILE, "a");
+    if (archivo == NULL) {
+        registrar_error("Error al abrir el archivo de datos de usuarios");
+        return;
+    }
+
+    fprintf(archivo, "Usuario: %s\n", nombre);
+    fprintf(archivo, "Horario: %s\n", horario);
+    fprintf(archivo, "IPs permitidas: %s\n", ips);
+    fprintf(archivo, "-----------------------------------\n");
+
+    fclose(archivo);
+
+    printf("Usuario '%s' creado exitosamente con horario '%s' y acceso desde '%s'.\n",
+           nombre, horario, ips);
+}
 
 void manejador_SIGINT(int sig) {
     printf("\nSeñal SIGINT capturada.\n");
     // No matamos el shell principal, pero podemos manejar interrupciones aquí
 }
 
-
+//Fucnion para ejecutar comandos del sistema
 void ejecutar_comando_sistema(char **args) {
     pid_t pid = fork();
     if (pid == -1) {
@@ -228,12 +346,146 @@ void ejecutar_comando_sistema(char **args) {
     }
 }
 
+void listarDemonios() {
+    struct dirent *entry;
+    DIR *dp = opendir("/etc/init.d");
+
+    if (dp == NULL) {
+        perror("Error al abrir /etc/init.d");
+        return;
+    }
+
+    printf("Demonios disponibles:\n");
+    while ((entry = readdir(dp)) != NULL) {
+        if (entry->d_name[0] != '.') {
+            printf("  %s\n", entry->d_name);
+        }
+    }
+    closedir(dp);
+}
+
+int obtenerPID(const char *nombre) {
+    char ruta[MAX_LFS_INPUT];
+    char buffer[128];
+    snprintf(ruta, sizeof(ruta), "/var/run/%s.pid", nombre);
+
+    FILE *archivo = fopen(ruta, "r");
+    if (archivo == NULL) {
+        return -1; // PID no encontrado
+    }
+
+    if (fgets(buffer, sizeof(buffer), archivo) != NULL) {
+        fclose(archivo);
+        return atoi(buffer);
+    }
+
+    fclose(archivo);
+    return -1;
+}
+
+void iniciarDemonio(const char *nombre) {
+    char ruta[MAX_LFS_INPUT];
+    snprintf(ruta, sizeof(ruta), "/etc/init.d/%s", nombre);
+
+    if (access(ruta, X_OK) != 0) {
+        printf("El demonio '%s' no existe o no es ejecutable.\n", nombre);
+        return;
+    }
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("Error al bifurcar");
+        return;
+    }
+
+    if (pid == 0) {
+        // Proceso hijo
+        execl(ruta, nombre, "start", (char *)NULL);
+        perror("Error al ejecutar el demonio");
+        exit(EXIT_FAILURE);
+    } else {
+        // Proceso padre
+        int status;
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status)) {
+            printf("Demonio '%s' iniciado exitosamente.\n", nombre);
+        } else {
+            printf("Error al iniciar el demonio '%s'.\n", nombre);
+        }
+    }
+}
+
+void detenerDemonio(const char *nombre) {
+    int pid = obtenerPID(nombre);
+    if (pid == -1) {
+        printf("No se encontró un proceso en ejecución para el demonio '%s'.\n", nombre);
+        return;
+    }
+
+    if (kill(pid, SIGTERM) == 0) {
+        printf("Demonio '%s' detenido exitosamente.\n", nombre);
+    } else {
+        perror("Error al detener el demonio");
+    }
+}
+
+void procesarDemonio(const char *accion, const char *nombre) {
+    if (strcmp(accion, "listar") == 0) {
+        listarDemonios();
+    } else if (strcmp(accion, "iniciar") == 0) {
+        iniciarDemonio(nombre);
+    } else if (strcmp(accion, "detener") == 0) {
+        detenerDemonio(nombre);
+    } else {
+        printf("Acción desconocida. Usa 'listar', 'iniciar <nombre>', o 'detener <nombre>'.\n");
+    }
+}
+
+//Función para registrar el inicio de cesion
+void registrar_sesion(const char *usuario, const char *accion) {
+    char log_path[PATH_MAX] = "usuario_horarios_log";
+    FILE *archivo = fopen(log_path, "a");
+    if (archivo == NULL) {
+        registrar_error("Error al abrir usuario_horarios_log");
+        return;
+    }
+
+    char timestamp[64];
+    obtener_timestamp(timestamp, sizeof(timestamp));
+
+    fprintf(archivo, "%s: Usuario '%s' %s sesión\n", timestamp, usuario, accion);
+    fclose(archivo);
+}
+
+//Funcion para la transferencia por ftp o scp, registrando en el log
+void transferencia_archivo(const char *origen, const char *destino, const char *metodo) {
+    char log_path[PATH_MAX] = "Shell_transferencias.log";
+    FILE *archivo = fopen(log_path, "a");
+    if (archivo == NULL) {
+        registrar_error("Error al abrir Shell_transferencias.log");
+        return;
+    }
+
+    char timestamp[64];
+    obtener_timestamp(timestamp, sizeof(timestamp));
+
+    if (strcmp(metodo, "scp") == 0 || strcmp(metodo, "ftp") == 0) {
+        fprintf(archivo, "%s: Transferencia iniciada de '%s' a '%s' usando %s\n", timestamp, origen, destino, metodo);
+        fclose(archivo);
+        ejecutar_comando(metodo);  // Ejemplo para delegar en herramientas como SCP
+    } else {
+        fprintf(archivo, "%s: Método de transferencia no soportado: '%s'\n", timestamp, metodo);
+        fclose(archivo);
+    }
+}
 
 //Procesar y Ejecutar Comandos
 void procesar_comando(char *input) {
     char *args[MAX_ARGS];
     char *token = strtok(input, " \t\n");
     int i = 0;
+
+    registrar_historial(input);
 
     while (token != NULL && i < MAX_ARGS - 1) {
         args[i++] = token;
@@ -297,14 +549,39 @@ void procesar_comando(char *input) {
         } else {
             printf("Uso: clave <usuario>\n");
         }
+    } else if (strcmp(args[0], "demonio") == 0) {
+        if (i >= 2) {
+            if (strcmp(args[1], "listar") == 0) {
+                listarDemonios();
+            } else if (i == 3 && strcmp(args[1], "iniciar") == 0) {
+                iniciarDemonio(args[2]);
+            } else if (i == 3 && strcmp(args[1], "detener") == 0) {
+                detenerDemonio(args[2]);
+            } else {
+                printf("Uso: demonio listar | demonio iniciar <nombre_demonio> | demonio detener <nombre_demonio>\n");
+            }
+        } else {
+            printf("Uso: demonio listar | demonio iniciar <nombre_demonio> | demonio detener <nombre_demonio>\n");
+        }
     } else if (strcmp(args[0], "exit") == 0) {
         exit(0);
+    }else if (strcmp(args[0], "transferencia") == 0) {
+        if (args[1] && args[2] && args[3]) {
+            transferencia_archivo(args[1], args[2], args[3]);
+        } else {
+            printf("Uso: transferencia <origen> <destino> <metodo>\n");
+        } 
+    }else if (strcmp(args[0], "usuario") == 0) {
+        if (args[1] && args[2] && args[3]) {
+            agregar_usuario(args[1], args[2], args[3]);
+        } else {
+            printf("Uso: usuario <nombre> <horario> <ips>\n");
+        }
     } else {
         // Si no es uno de los comandos anteriores, lo ejecutamos como un comando del sistema
         ejecutar_comando_sistema(args);
     }
 }
-
 
 // Función principal de la shell
 int main() {
