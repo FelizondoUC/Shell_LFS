@@ -19,7 +19,7 @@ Comando permisos -> Cambia los permisos de un archivo.
 Ejemplo: permisos 777 example.txt 
 
 Comando propietario -> Cambia el propietario de un archivo.
-Ejemplo: propietario
+Ejemplo:  propietario <usuario> <grupo> <archivo>
 
 Comando clave -> Cambia la contraseña de un usuario
 Ejemplo: clave <nombre_usuario>
