@@ -23,7 +23,7 @@ typedef struct {
     char nombre[64];
     char contrasena[64];
     char horario[64];  // Ejemplo: "10:00-17:00"
-    char ips[128];     // Ejemplo: "192.168.100.57,localhost"
+    char ips[128];     // Ejemplo: "192.168.100.57"
 } Usuario;
 
 
@@ -170,6 +170,7 @@ void listar(const char *directorio) {
     registrar_historial(directorio);
     DIR *dir = opendir(directorio);
     if (dir == NULL) {
+        registrar_error(directorio);
         perror("Error al abrir el directorio");
         return;
     }
@@ -196,9 +197,10 @@ void creardir(const char *directorio) {
 void ir(const char *directorio) {
     if (chdir(directorio) == 0) {
         registrar_historial(directorio);
+        registrar_error("Error: No se pudo ir al dorectorio sugerido");
         printf("Directorio cambiado a: %s\n", directorio);
     } else {
-        perror("Error al cambiar de directorio");
+        registrar_error("Error: No se pudo ir al dorectorio sugerido");
     }
 }
 
@@ -382,19 +384,20 @@ int obtenerPID(const char *nombre) {
     char ruta[MAX_LFS_INPUT];
     char buffer[128];
     snprintf(ruta, sizeof(ruta), "/var/run/%s.pid", nombre);
+    int i;
 
     FILE *archivo = fopen(ruta, "r");
     if (archivo == NULL) {
-        return -1; // PID no encontrado
+        i = -1; // PID no encontrado
     }
 
     if (fgets(buffer, sizeof(buffer), archivo) != NULL) {
         fclose(archivo);
-        return atoi(buffer);
+        i = atoi(buffer);
     }
 
     fclose(archivo);
-    return -1;
+    return i;
 }
 
 void iniciarDemonio(const char *nombre) {
@@ -431,19 +434,23 @@ void iniciarDemonio(const char *nombre) {
 }
 
 void detenerDemonio(const char *nombre) {
-    //registrar_historial(args[0]);
     int pid = obtenerPID(nombre);
     if (pid == -1) {
-        printf("No se encontró un proceso en ejecución para el demonio '%s'.\n", nombre);
+        printf("No se encontró el demonio %s.\n", nombre);
         return;
     }
-
+    if (pid == getpid()) {
+        printf("Error: Intento de detener la shell en lugar del demonio.\n");
+        return;
+    }
     if (kill(pid, SIGTERM) == 0) {
-        printf("Demonio '%s' detenido exitosamente.\n", nombre);
+        printf("Demonio %s detenido.\n", nombre);
     } else {
         perror("Error al detener el demonio");
     }
 }
+
+
 
 void procesarDemonio(const char *accion, const char *nombre) {
     if (strcmp(accion, "listar") == 0) {
@@ -485,14 +492,36 @@ void transferencia_archivo(const char *origen, const char *destino, const char *
     char timestamp[64];
     obtener_timestamp(timestamp, sizeof(timestamp));
 
-    if (strcmp(metodo, "scp") == 0 || strcmp(metodo, "ftp") == 0) {
+
+        // Crear un proceso para ejecutar el comando
+        pid_t pid = fork();
+        if (pid == 0) {
+            char comando[MAX_LFS_INPUT];
+            snprintf(comando, sizeof(comando), "%s %s %s", metodo, origen, destino);
+            execlp(metodo, metodo, origen, destino, (char *)NULL);
+            perror("Error al ejecutar el comando de transferencia");
+            exit(EXIT_FAILURE);
+        } else if (pid > 0) {
+            int status;
+            waitpid(pid, &status, 0);
+            if (WIFEXITED(status)) {
+                printf("Transferencia completada: '%s' a '%s' usando %s\n", origen, destino, metodo);
+            } else {
+                printf("Error en la transferencia: '%s' a '%s' usando %s\n", origen, destino, metodo);
+            }
+        } else {
+            registrar_error("Error al bifurcar para transferencia");
+    }
+	fclose(archivo);
+
+    /*if (strcmp(metodo, "scp") == 0 || strcmp(metodo, "ftp") == 0) {
         fprintf(archivo, "%s: Transferencia iniciada de '%s' a '%s' usando %s\n", timestamp, origen, destino, metodo);
         fclose(archivo);
         ejecutar_comando(metodo);  // Ejemplo para delegar en herramientas como SCP
     } else {
         fprintf(archivo, "%s: Método de transferencia no soportado: '%s'\n", timestamp, metodo);
         fclose(archivo);
-    }
+    }*/
 }
 
 //Procesar y Ejecutar Comandos
@@ -516,32 +545,37 @@ void procesar_comando(char *input) {
     // Comandos implementados
     if (strcmp(args[0], "propietario") == 0) {
         if (i >= 4) {
-            cambiar_propietario(args[1], args[2], (const char **)&args[3], i - 3);
+            cambiar_propietario(args[1],args[2], (const char **)&args[3], i - 3);
         } else {
-            printf("Uso: propietario <nuevo_propietario> <nuevo_grupo> <archivo1> [archivo2 ... archivoN]\n");
+            registrar_error("No se pudo cambiar de propietario.");
+            printf("Uso: propietario <nuevo_propietario> <archivo1> [archivo2 ... archivoN]\n");
         }
     } else if (strcmp(args[0], "permisos") == 0) {
         if (i >= 3) {
             permisos(args[1], (const char **)&args[2], i - 2);
         } else {
+            registrar_error("No se pudo cambiar los permisos.");
             printf("Uso: permisos <modo> <archivo1> [archivo2 ... archivoN]\n");
         }
     } else if (strcmp(args[0], "copiar") == 0) {
         if (i == 3) {
             copiar(args[1], args[2]);
         } else {
+            registrar_error("No se pudo copiar.");
             printf("Uso: copiar <archivo_origen> <archivo_destino>\n");
         }
     } else if (strcmp(args[0], "mover") == 0) {
         if (i == 3) {
             mover(args[1], args[2]);
         } else {
+            registrar_error("No se pudo mover.");
             printf("Uso: mover <archivo_origen> <archivo_destino>\n");
         }
     } else if (strcmp(args[0], "renombrar") == 0) {
         if (i == 3) {
             renombrar(args[1], args[2]);
         } else {
+            registrar_error("No se pudo renombrar.");
             printf("Uso: renombrar <archivo> <nuevo_nombre>\n");
         }
     } else if (strcmp(args[0], "listar") == 0) {
@@ -551,12 +585,14 @@ void procesar_comando(char *input) {
         if (i == 2) {
             creardir(args[1]);
         } else {
+            registrar_error("No se pudo crear el nuevo directorio.");
             printf("Uso: creardir <nombre_directorio>\n");
         }
     } else if (strcmp(args[0], "ir") == 0) {
         if (i == 2) {
             ir(args[1]);
         } else {
+            registrar_error("Error: No se pudo ir al dorectorio sugerido");
             printf("Uso: ir <nombre_directorio>\n");
         }
     } else if (strcmp(args[0], "mostrar") == 0) {
@@ -565,6 +601,7 @@ void procesar_comando(char *input) {
         if (i == 2) {
             cambiar_clave(args[1]);
         } else {
+            registrar_error("No se pudo cambiar la clave del usuario.");
             printf("Uso: clave <usuario>\n");
         }
     } else if (strcmp(args[0], "demonio") == 0) {
@@ -575,24 +612,28 @@ void procesar_comando(char *input) {
                 iniciarDemonio(args[2]);
             } else if (i == 3 && strcmp(args[1], "detener") == 0) {
                 detenerDemonio(args[2]);
-            } else {
+            } else if (strcmp(args[0], "transferir") == 0) {
+        if (i == 4) {
+            transferencia_archivo(args[1], args[2], args[3]);
+        } else {
+            registrar_error("No se pudo realizar la operacion del demonio.");
+            printf("Uso: transferir <origen> <destino> <metodo(scp|ftp)>\n");
+        }
+	    } else {
+                registrar_error("No se pudo realizar la operacion del demonio.");
                 printf("Uso: demonio listar | demonio iniciar <nombre_demonio> | demonio detener <nombre_demonio>\n");
             }
         } else {
+            registrar_error("No se pudo realizar la operacion del demonio.");
             printf("Uso: demonio listar | demonio iniciar <nombre_demonio> | demonio detener <nombre_demonio>\n");
         }
     } else if (strcmp(args[0], "exit") == 0) {
         exit(0);
-    }else if (strcmp(args[0], "transferencia") == 0) {
-        if (args[1] && args[2] && args[3]) {
-            transferencia_archivo(args[1], args[2], args[3]);
-        } else {
-            printf("Uso: transferencia <origen> <destino> <metodo>\n");
-        } 
     }else if (strcmp(args[0], "usuario") == 0) {
         if (args[1] && args[2] && args[3]) {
             agregar_usuario(args[1], args[2], args[3]);
         } else {
+            registrar_error("No se pudo iniciar");
             printf("Uso: usuario <nombre> <horario> <ips>\n");
         }
     } else if (strcmp(args[0], "sesion") == 0){
@@ -622,12 +663,12 @@ int main() {
     
     char input[MAX_LFS_INPUT];
 
-    registrar_sesion("lfs_usuario", "inició");
+    registrar_sesion("root", "inició");
 
     while (1) {
         prompt();
         if (fgets(input, MAX_LFS_INPUT, stdin) == NULL) {
-            registrar_sesion("lfs_usuario", "cerró");
+            registrar_sesion("root", "cerró");
             break; // Salir con Ctrl+D
         }
         procesar_comando(input);
