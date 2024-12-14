@@ -480,9 +480,27 @@ void registrar_sesion(const char *usuario, const char *accion) {
     fclose(archivo);
 }
 
-//Funcion para la transferencia por ftp o scp, registrando en el log
+// Función para registrar en el log
+void registrar_log(const char *mensaje) {
+    FILE *archivo_log = fopen("/var/log/shell/Shell_transferencias", "a");
+    if (archivo_log == NULL) {
+        perror("No se pudo abrir el archivo de log");
+        return;
+    }
+
+    // Obtener la fecha y hora actual
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+    fprintf(archivo_log, "[%04d-%02d-%02d %02d:%02d:%02d] %s\n", 
+            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, 
+            tm.tm_hour, tm.tm_min, tm.tm_sec, mensaje);
+    
+    fclose(archivo_log);
+}
+
+// Función para ejecutar la transferencia FTP
 void transferencia_archivo(const char *origen, const char *destino, const char *metodo) {
-    char log_path[PATH_MAX] = "Shell_transferencias.log";
+    char log_path[PATH_MAX] = "/var/log/shell/Shell_transferencias.log";
     FILE *archivo = fopen(log_path, "a");
     if (archivo == NULL) {
         registrar_error("Error al abrir Shell_transferencias.log");
@@ -492,37 +510,16 @@ void transferencia_archivo(const char *origen, const char *destino, const char *
     char timestamp[64];
     obtener_timestamp(timestamp, sizeof(timestamp));
 
-
-        // Crear un proceso para ejecutar el comando
-        pid_t pid = fork();
-        if (pid == 0) {
-            char comando[MAX_LFS_INPUT];
-            snprintf(comando, sizeof(comando), "%s %s %s", metodo, origen, destino);
-            execlp(metodo, metodo, origen, destino, (char *)NULL);
-            perror("Error al ejecutar el comando de transferencia");
-            exit(EXIT_FAILURE);
-        } else if (pid > 0) {
-            int status;
-            waitpid(pid, &status, 0);
-            if (WIFEXITED(status)) {
-                printf("Transferencia completada: '%s' a '%s' usando %s\n", origen, destino, metodo);
-            } else {
-                printf("Error en la transferencia: '%s' a '%s' usando %s\n", origen, destino, metodo);
-            }
-        } else {
-            registrar_error("Error al bifurcar para transferencia");
-    }
-	fclose(archivo);
-
-    /*if (strcmp(metodo, "scp") == 0 || strcmp(metodo, "ftp") == 0) {
+    if (strcmp(metodo, "scp") == 0 || strcmp(metodo, "ftp") == 0) {
         fprintf(archivo, "%s: Transferencia iniciada de '%s' a '%s' usando %s\n", timestamp, origen, destino, metodo);
         fclose(archivo);
         ejecutar_comando(metodo);  // Ejemplo para delegar en herramientas como SCP
     } else {
         fprintf(archivo, "%s: Método de transferencia no soportado: '%s'\n", timestamp, metodo);
         fclose(archivo);
-    }*/
+    }
 }
+
 
 //Procesar y Ejecutar Comandos
 void procesar_comando(char *input) {
@@ -613,13 +610,7 @@ void procesar_comando(char *input) {
             } else if (i == 3 && strcmp(args[1], "detener") == 0) {
                 detenerDemonio(args[2]);
             } else if (strcmp(args[0], "transferir") == 0) {
-        if (i == 4) {
-            transferencia_archivo(args[1], args[2], args[3]);
-        } else {
-            registrar_error("No se pudo realizar la operacion del demonio.");
-            printf("Uso: transferir <origen> <destino> <metodo(scp|ftp)>\n");
-        }
-	    } else {
+	        } else {
                 registrar_error("No se pudo realizar la operacion del demonio.");
                 printf("Uso: demonio listar | demonio iniciar <nombre_demonio> | demonio detener <nombre_demonio>\n");
             }
@@ -641,6 +632,14 @@ void procesar_comando(char *input) {
         printf("Uso: sesion <usuario> <accion>\n");
     } else {
         registrar_historial(args[0]);
+    }
+    }else if (strcmp(args[0], "transferencia") == 0){
+        if (args[1] == NULL || args[2] == NULL || args[3] == NULL) {
+        registrar_error("Error al relizar la transferencia");
+        printf("Uso: transferencia <origen> <destino> <metodo>\n");
+    } else {
+        registrar_historial(args[0]);
+        transferencia_archivo(args[1], args[2], args[3]); // args[1]: origen, args[2]: destino, args[3]: método (scp o ftp)
     }
     } else {
         // Si no es uno de los comandos anteriores, lo ejecutamos como un comando del sistema
